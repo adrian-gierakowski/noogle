@@ -14,6 +14,7 @@ use ratatui::{
 use std::{error::Error, io};
 use crate::model::DocItem;
 use crate::search::search;
+use crate::details::render_doc;
 
 struct App<'a> {
     input: String,
@@ -186,15 +187,11 @@ fn ui(f: &mut Frame, app: &mut App) {
             let inner_area = block.inner(main_chunks[1]);
             f.render_widget(block, main_chunks[1]);
 
-            // Render Markdown
-            if let Some(content) = item.content() {
-                 let p = Paragraph::new(content.as_str())
-                    .wrap(Wrap { trim: true });
-                 f.render_widget(p, inner_area);
-            } else {
-                 let para = Paragraph::new("No documentation available.");
-                 f.render_widget(para, inner_area);
-            }
+            let text = render_doc(item);
+            let p = Paragraph::new(text)
+                .wrap(Wrap { trim: false }) // Don't trim as we handle some formatting manually
+                .scroll((0, 0)); // We might need to add scroll state to App if we want to scroll this view
+             f.render_widget(p, inner_area);
         }
     } else {
          let block = Block::default().borders(Borders::ALL).title("Documentation");
