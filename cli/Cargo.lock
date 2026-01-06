@@ -386,11 +386,13 @@ dependencies = [
  "crossterm",
  "directories",
  "fuzzy-matcher",
+ "once_cell",
  "open",
  "ratatui",
  "regex",
  "serde",
  "serde_json",
+ "unicode-width",
 ]
 
 [[package]]

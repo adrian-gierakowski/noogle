@@ -2,6 +2,7 @@ use crate::model::DocItem;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use regex::Regex;
+use once_cell::sync::Lazy;
 
 #[derive(Debug, PartialEq)]
 struct ParsedDoc {
@@ -17,7 +18,8 @@ fn parse_doc(item: &DocItem) -> ParsedDoc {
     // Simple regex-based parsing for sections
     // Sections are headers like "# Inputs", "# Type", "# Examples"
 
-    let sections_re = Regex::new(r"(?m)^#\s+(.*)$").unwrap();
+    static SECTIONS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^#\s+(.*)$").unwrap());
+
     let mut current_pos = 0;
     let mut description = String::new();
     let mut inputs_text = String::new();
@@ -26,7 +28,7 @@ fn parse_doc(item: &DocItem) -> ParsedDoc {
 
     let mut current_section = "Description";
 
-    for cap in sections_re.captures_iter(content) {
+    for cap in SECTIONS_RE.captures_iter(content) {
         let match_start = cap.get(0).unwrap().start();
         let match_end = cap.get(0).unwrap().end();
         let header = cap.get(1).unwrap().as_str().trim();
@@ -58,20 +60,6 @@ fn parse_doc(item: &DocItem) -> ParsedDoc {
     // Process inputs
     let mut inputs = Vec::new();
     if !inputs_text.is_empty() {
-        // Inputs in markdown are usually like:
-        // `arg`
-        // : description
-        // We can just keep the text as is or try to format it.
-        // For now, let's keep it simple and just split by double newlines or similar?
-        // Actually the screenshot shows:
-        // list
-        // 1. Function argument
-
-        // In markdown:
-        // `list`
-        // : 1\. Function argument
-
-        // Let's just store the raw text for inputs if it was parsed from markdown.
         inputs.push(inputs_text);
     } else if let Some(meta_args) = &item.meta.primop_meta.as_ref().and_then(|m| m.args.as_ref()) {
          // Primop args
@@ -101,17 +89,14 @@ fn parse_doc(item: &DocItem) -> ParsedDoc {
     }
 }
 
-pub fn render_doc(item: &DocItem) -> Text<'static> {
+pub fn render_doc(item: &DocItem) -> (Text<'static>, Option<String>) {
     let parsed = parse_doc(item);
     let mut lines = Vec::new();
 
     // 1. Title
-    // Already in the list view, but good to have here too? Screenshot shows title at top.
-    // The screenshot has a header with breadcrumbs "lib.lists.allUnique"
-    // We can just print the title.
     lines.push(Line::from(Span::styled(
         item.title().to_string(),
-        Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED), // Using Magenta as close to purple/blue
+        Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED),
     )));
     lines.push(Line::from(""));
 
@@ -122,23 +107,18 @@ pub fn render_doc(item: &DocItem) -> Text<'static> {
     }
 
     // 3. Inputs
-    // Check if we have inputs.
-    // The screenshot has a blue header "Inputs"
     let header_style = Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED);
 
     if !parsed.inputs.is_empty() {
         lines.push(Line::from(Span::styled("Inputs", header_style)));
         lines.push(Line::from(""));
         for input in parsed.inputs {
-             // If it's primop args, we formatted it specially.
-             // If it's markdown, it might contain newlines.
              for line in input.lines() {
                  lines.push(Line::from(line.to_string()));
              }
         }
         lines.push(Line::from(""));
     } else if let Some(primop) = &item.meta.primop_meta {
-        // Even if no specific input text, primop has args
          if let Some(args) = &primop.args {
             lines.push(Line::from(Span::styled("Inputs", header_style)));
             lines.push(Line::from(""));
@@ -153,8 +133,7 @@ pub fn render_doc(item: &DocItem) -> Text<'static> {
     if let Some(t) = parsed.type_info {
         lines.push(Line::from(Span::styled("Type", header_style)));
         lines.push(Line::from(""));
-        // Code block style
-        let code_style = Style::default().bg(Color::Rgb(30, 30, 30)); // Dark grey background
+        let code_style = Style::default().bg(Color::Rgb(30, 30, 30));
         lines.push(Line::from(Span::styled(format!(" {} ", t), code_style)));
         lines.push(Line::from(""));
     }
@@ -163,8 +142,6 @@ pub fn render_doc(item: &DocItem) -> Text<'static> {
     if let Some(ex) = parsed.examples {
         lines.push(Line::from(Span::styled("Examples", header_style)));
         lines.push(Line::from(""));
-        // Examples often contain code blocks.
-        // Simple markdown stripper/formatter
         for line in ex.lines() {
              if line.starts_with("```") || line.starts_with(":::") {
                  continue;
@@ -195,7 +172,6 @@ pub fn render_doc(item: &DocItem) -> Text<'static> {
     lines.push(Line::from(""));
 
     if item.meta.is_primop.unwrap_or(false) {
-        // Green Tip
         let tip_style = Style::default().fg(Color::Green).add_modifier(Modifier::ITALIC);
         lines.push(Line::from(Span::styled("Tip", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
         lines.push(Line::from(""));
@@ -212,21 +188,15 @@ pub fn render_doc(item: &DocItem) -> Text<'static> {
     lines.push(Line::from(""));
 
     // 8. Source Code Link
+    let mut url_out = None;
     if let Some(pos) = &item.meta.attr_position {
         // Construct file URL
         let file_path = pos.file.to_string_lossy();
-        let link_text = "Jump to Source Code";
-        // OSC 8 hyperlink
-        // \x1b]8;;url\x1b\\text\x1b]8;;\x1b\\
-        let url = format!("file://{}", file_path);
-        let hyperlink = format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, link_text);
-
-        // Ratatui doesn't render escapes in string content well if we want styling.
-        // But let's try.
-        lines.push(Line::from(Span::raw(hyperlink)));
+        // Return URL separately to be handled by a specialized Widget
+        url_out = Some(format!("file://{}", file_path));
     }
 
-    Text::from(lines)
+    (Text::from(lines), url_out)
 }
 
 #[cfg(test)]
@@ -273,9 +243,10 @@ mod tests {
     fn test_render_contains_headers() {
         let content = "Desc\n\n# Inputs\n\nArg1";
         let doc = mock_doc("test", Some(content), false);
-        let text = render_doc(&doc);
+        let (text, url) = render_doc(&doc);
         let output = format!("{:?}", text);
         assert!(output.contains("Inputs"));
+        assert_eq!(url, None); // Mock doc has no position
 
         // Let's check Implementation
         assert!(output.contains("Implementation"));

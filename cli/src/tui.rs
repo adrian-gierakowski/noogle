@@ -5,13 +5,15 @@ use crossterm::{
 };
 use ratatui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout},
+    buffer::Buffer,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget, Wrap},
     Frame, Terminal,
 };
 use std::{error::Error, io};
+use unicode_width::UnicodeWidthStr;
 use crate::model::DocItem;
 use crate::search::search;
 use crate::details::render_doc;
@@ -121,16 +123,55 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 KeyCode::Up => app.select_previous(),
                 KeyCode::Enter => {
                     // Open in browser or expand?
-                    // For now maybe nothing or simple expand if we had a popup
                     if let Some(selected) = app.state.selected() {
                         if let Some(_result) = app.results.get(selected) {
                              // Attempt to open documentation URL if possible?
-                             // But we don't have URLs in data.json easily.
-                             // We have source position.
                         }
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+}
+
+struct HyperlinkWidget<'a> {
+    url: &'a str,
+    label: &'a str,
+}
+
+impl<'a> Widget for HyperlinkWidget<'a> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let (x, y) = (area.x, area.y);
+        // Render label text normally so Ratatui sets up the cells correctly
+        buf.set_string(x, y, self.label, Style::default());
+
+        // Now inject the escape sequences into the symbols of the first and last cells.
+        // This preserves layout (ratatui thinks it's just text) but terminal renders link.
+
+        let start_seq = format!("\x1b]8;;{}\x1b\\", self.url);
+        let end_seq = "\x1b]8;;\x1b\\";
+
+        // Modify first cell
+        if area.width > 0 {
+            let first_cell = buf.get_mut(x, y);
+            let symbol = first_cell.symbol().to_string();
+            first_cell.set_symbol(&format!("{}{}", start_seq, symbol));
+        }
+
+        // Modify last cell of the label
+        // We need to calculate where the label ends.
+        let width = self.label.width();
+        if width > 0 {
+            let end_x = x + (width as u16) - 1;
+
+            // Even if truncated, we must close the sequence on the last visible cell
+            let effective_end_x = std::cmp::min(end_x, area.right().saturating_sub(1));
+
+            if effective_end_x >= x {
+                 let last_cell = buf.get_mut(effective_end_x, y);
+                 let symbol = last_cell.symbol().to_string();
+                 last_cell.set_symbol(&format!("{}{}", symbol, end_seq));
             }
         }
     }
@@ -187,11 +228,32 @@ fn ui(f: &mut Frame, app: &mut App) {
             let inner_area = block.inner(main_chunks[1]);
             f.render_widget(block, main_chunks[1]);
 
-            let text = render_doc(item);
-            let p = Paragraph::new(text)
-                .wrap(Wrap { trim: false }) // Don't trim as we handle some formatting manually
-                .scroll((0, 0)); // We might need to add scroll state to App if we want to scroll this view
-             f.render_widget(p, inner_area);
+            let (text, url) = render_doc(item);
+
+            if let Some(u) = url {
+                // Split inner area: Text takes available - 1 line, Link takes bottom 1 line
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
+                    .split(inner_area);
+
+                let p = Paragraph::new(text)
+                    .wrap(Wrap { trim: false })
+                    .scroll((0, 0));
+                f.render_widget(p, chunks[0]);
+
+                let link_widget = HyperlinkWidget {
+                    url: &u,
+                    label: "Jump to Source Code",
+                };
+                f.render_widget(link_widget, chunks[1]);
+
+            } else {
+                let p = Paragraph::new(text)
+                    .wrap(Wrap { trim: false })
+                    .scroll((0, 0));
+                f.render_widget(p, inner_area);
+            }
         }
     } else {
          let block = Block::default().borders(Borders::ALL).title("Documentation");
