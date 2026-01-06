@@ -89,7 +89,7 @@ fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&json_results)?);
                 } else {
                     for res in results {
-                        println!("{} (score: {})", res.doc.title(), res.score);
+                        println!("{}", res.doc.title());
                     }
                 }
             }
@@ -98,7 +98,7 @@ fn main() -> Result<()> {
          // One shot search
          let results = search::search(&query, &data);
          for res in results {
-            println!("{} (score: {})", res.doc.title(), res.score);
+            println!("{}", res.doc.title());
          }
     } else {
         // Interactive TUI
