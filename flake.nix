@@ -34,6 +34,7 @@
         ./salt/flake-module.nix
         ./pasta/flake-module.nix
         ./pesto/flake-module.nix
+        ./cli/flake-module.nix
         #
         ./nixPlugin/flake-module.nix
       ];

@@ -9,3 +9,5 @@ result-*
 node_modules
 
 .pre-commit-config.yaml
+target/
+cli/target/
