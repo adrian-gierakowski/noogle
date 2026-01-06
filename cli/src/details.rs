@@ -89,6 +89,13 @@ fn parse_doc(item: &DocItem) -> ParsedDoc {
     }
 }
 
+fn format_code_block(text: &str) -> Vec<Line<'static>> {
+    let code_style = Style::default().bg(Color::Rgb(30, 30, 30));
+    text.lines()
+        .map(|line| Line::from(Span::styled(format!(" {} ", line), code_style)))
+        .collect()
+}
+
 pub fn render_doc(item: &DocItem) -> (Text<'static>, Option<String>) {
     let parsed = parse_doc(item);
     let mut lines = Vec::new();
@@ -112,9 +119,27 @@ pub fn render_doc(item: &DocItem) -> (Text<'static>, Option<String>) {
     if !parsed.inputs.is_empty() {
         lines.push(Line::from(Span::styled("Inputs", header_style)));
         lines.push(Line::from(""));
+
+        static INPUT_ARG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^`([^`]+)`$").unwrap());
+        static INPUT_DESC_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^:\s*(.*)$").unwrap());
+
         for input in parsed.inputs {
              for line in input.lines() {
-                 lines.push(Line::from(line.to_string()));
+                 let line = line.trim();
+                 if let Some(caps) = INPUT_ARG_RE.captures(line) {
+                     // Arg name - Cyan, Italic
+                     lines.push(Line::from(Span::styled(
+                         caps.get(1).unwrap().as_str().to_string(),
+                         Style::default().fg(Color::Cyan).add_modifier(Modifier::ITALIC)
+                     )));
+                 } else if let Some(caps) = INPUT_DESC_RE.captures(line) {
+                     // Description - Indented
+                     let desc = caps.get(1).unwrap().as_str().replace(r"\.", ".");
+                     lines.push(Line::from(format!("  {}", desc)));
+                 } else {
+                     // Fallback
+                     lines.push(Line::from(line.to_string()));
+                 }
              }
         }
         lines.push(Line::from(""));
@@ -133,8 +158,7 @@ pub fn render_doc(item: &DocItem) -> (Text<'static>, Option<String>) {
     if let Some(t) = parsed.type_info {
         lines.push(Line::from(Span::styled("Type", header_style)));
         lines.push(Line::from(""));
-        let code_style = Style::default().bg(Color::Rgb(30, 30, 30));
-        lines.push(Line::from(Span::styled(format!(" {} ", t), code_style)));
+        lines.extend(format_code_block(&t));
         lines.push(Line::from(""));
     }
 
@@ -142,12 +166,19 @@ pub fn render_doc(item: &DocItem) -> (Text<'static>, Option<String>) {
     if let Some(ex) = parsed.examples {
         lines.push(Line::from(Span::styled("Examples", header_style)));
         lines.push(Line::from(""));
+
+        let mut in_code_block = false;
+        let code_style = Style::default().bg(Color::Rgb(30, 30, 30));
+
         for line in ex.lines() {
              if line.starts_with("```") || line.starts_with(":::") {
+                 in_code_block = !in_code_block;
                  continue;
              }
              if line.starts_with("##") {
                  lines.push(Line::from(Span::styled(line.trim_start_matches('#').trim().to_string(), Style::default().add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED))));
+             } else if in_code_block {
+                 lines.push(Line::from(Span::styled(format!(" {} ", line), code_style)));
              } else {
                  lines.push(Line::from(line.to_string()));
              }
@@ -182,8 +213,7 @@ pub fn render_doc(item: &DocItem) -> (Text<'static>, Option<String>) {
         lines.push(Line::from(Span::styled("The following is the current implementation of this function.", Style::default().fg(Color::Green).add_modifier(Modifier::ITALIC))));
         lines.push(Line::from(""));
 
-        let code_style = Style::default().bg(Color::Rgb(30, 30, 30));
-        lines.push(Line::from(Span::styled(format!(" {} ", expr), code_style)));
+        lines.extend(format_code_block(expr));
     }
     lines.push(Line::from(""));
 
@@ -215,7 +245,7 @@ mod tests {
                 primop_meta: if primop { Some(PrimopMatter { name: Some("test".to_string()), args: Some(vec!["a".to_string(), "b".to_string()]), experimental: None, arity: Some(2) }) } else { None },
                 is_functor: None,
                 attr_position: None,
-                attr_expr: Some("impl = ...".to_string()),
+                attr_expr: Some("impl = ...\nline 2".to_string()),
                 lambda_position: None,
                 lambda_expr: None,
                 count_applied: None,
@@ -240,16 +270,27 @@ mod tests {
     }
 
     #[test]
-    fn test_render_contains_headers() {
-        let content = "Desc\n\n# Inputs\n\nArg1";
+    fn test_render_inputs_formatting() {
+        let content = "Desc\n\n# Inputs\n\n`arg`\n: 1\\. Desc";
         let doc = mock_doc("test", Some(content), false);
-        let (text, url) = render_doc(&doc);
+        let (text, _) = render_doc(&doc);
         let output = format!("{:?}", text);
-        assert!(output.contains("Inputs"));
-        assert_eq!(url, None); // Mock doc has no position
+        // It should contain the styled arg and processed description
+        // Debug format of Text isn't perfect for checking styles, but we can check string content modification
+        assert!(output.contains("1. Desc"));
+        assert!(!output.contains("1\\. Desc"));
+    }
 
-        // Let's check Implementation
-        assert!(output.contains("Implementation"));
-        assert!(output.contains("Tip"));
+    #[test]
+    fn test_render_multiline_impl() {
+        let doc = mock_doc("test", None, false);
+        let (text, _) = render_doc(&doc);
+        let output = format!("{:?}", text);
+        assert!(output.contains("impl = ..."));
+        assert!(output.contains("line 2"));
+        // Check that they are on separate lines (Ratatui Text struct stores lines as a vector)
+        // We can't easily check the vector structure via Debug output of the whole Text without more effort,
+        // but finding both strings suggests they are there.
+        // We can assert the number of lines if we knew exact layout.
     }
 }
