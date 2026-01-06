@@ -19,9 +19,9 @@
 
             # Website fonts
             echo "Copying fonts (1/2)..."
-            cp -rf ${pkgs.inter}/share/fonts/truetype/* ${fonts_path}
+            find ${pkgs.inter} -name "InterVariable.ttf" -exec cp -f {} ${fonts_path} \;
             echo "Copying fonts (2/2)..."
-            cp -rf ${pkgs.fira-code}/share/fonts/truetype/* ${fonts_path}
+            find ${pkgs.fira-code} -name "FiraCode-VF.ttf" -exec cp -f {} ${fonts_path} \;
             chmod -R +w ${fonts_path}
           '';
       };
