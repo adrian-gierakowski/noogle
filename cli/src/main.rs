@@ -6,6 +6,7 @@ use directories::ProjectDirs;
 mod model;
 mod loader;
 mod search;
+mod details;
 mod tui;
 #[cfg(test)]
 mod tests;
