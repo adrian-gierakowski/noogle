@@ -1,20 +1,27 @@
 #[cfg(test)]
 mod tests {
-    use crate::model::{DocItem, DocsMeta, AttrMeta, LambdaMeta};
+    use crate::model::{DocItem, DocumentFrontmatter, Document};
     use crate::search::search;
+    use serde_json::from_str;
 
     fn create_mock_doc(name: &str) -> DocItem {
         DocItem {
-            docs: DocsMeta {
-                lambda: None,
-                attr: AttrMeta {
-                    position: None,
-                    content: None,
-                    expr: None,
-                },
+            meta: DocumentFrontmatter {
+                title: name.to_string(),
+                path: name.split('.').map(|s| s.to_string()).collect(),
+                aliases: None,
+                signature: None,
+                is_primop: None,
+                primop_meta: None,
+                is_functor: None,
+                attr_position: None,
+                attr_expr: None,
+                lambda_position: None,
+                lambda_expr: None,
+                count_applied: None,
+                content_meta: None,
             },
-            aliases: None,
-            path: name.split('.').map(|s| s.to_string()).collect(),
+            content: None,
         }
     }
 
@@ -43,5 +50,43 @@ mod tests {
 
         let results = search("b.rf", &data); // "b"uiltins."r"ead"f"ile
         assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn test_deserialization() {
+        let json_data = r#"
+        {
+            "meta": {
+                "title": "builtins.map",
+                "path": ["builtins", "map"],
+                "aliases": null,
+                "signature": null,
+                "is_primop": true,
+                "primop_meta": {
+                    "name": "map",
+                    "args": ["f", "list"],
+                    "experimental": false,
+                    "arity": 2
+                },
+                "is_functor": null,
+                "attr_position": null,
+                "attr_expr": null,
+                "lambda_position": null,
+                "lambda_expr": null,
+                "count_applied": null,
+                "content_meta": null
+            },
+            "content": {
+                "content": "Apply function f to each element of list.",
+                "source": null
+            }
+        }
+        "#;
+
+        let doc: Document = from_str(json_data).expect("Failed to deserialize Document");
+        assert_eq!(doc.title(), "builtins.map");
+        assert_eq!(doc.content(), Some(&"Apply function f to each element of list.".to_string()));
+        assert_eq!(doc.meta.is_primop, Some(true));
+        assert_eq!(doc.meta.primop_meta.unwrap().arity, Some(2));
     }
 }
