@@ -9,63 +9,58 @@ pub struct FilePosition {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LambdaMeta {
-    #[allow(non_snake_case)]
-    pub isPrimop: bool,
-    #[allow(non_snake_case)]
-    pub isFunctor: Option<bool>,
+pub struct PrimopMatter {
     pub name: Option<String>,
-    pub position: Option<FilePosition>,
     pub args: Option<Vec<String>>,
     pub experimental: Option<bool>,
     pub arity: Option<usize>,
-    pub content: Option<String>,
-    #[allow(non_snake_case)]
-    pub countApplied: Option<usize>,
-    // expr is serialized AST, we treat it as string or ignore
-    pub expr: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AttrMeta {
+pub struct SourceOrigin {
     pub position: Option<FilePosition>,
+    pub path: Option<Vec<String>>,
+    // pos_type omitted as it relies on an enum that might change, and we might not need it
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ContentSource {
     pub content: Option<String>,
-    pub expr: Option<String>,
+    pub source: Option<SourceOrigin>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DocsMeta {
-    pub lambda: Option<LambdaMeta>,
-    pub attr: AttrMeta,
+pub struct DocumentFrontmatter {
+    pub title: String,
+    pub path: Vec<String>, // Rc<ValuePath> -> Vec<String>
+    pub aliases: Option<Vec<Vec<String>>>, // AliasList -> Vec<Vec<String>>
+    pub signature: Option<String>,
+    pub is_primop: Option<bool>,
+    pub primop_meta: Option<PrimopMatter>,
+    pub is_functor: Option<bool>,
+    pub attr_position: Option<FilePosition>,
+    pub attr_expr: Option<String>,
+    pub lambda_position: Option<FilePosition>,
+    pub lambda_expr: Option<String>,
+    pub count_applied: Option<usize>,
+    pub content_meta: Option<SourceOrigin>,
 }
 
-// Docs corresponds to one item in the root array of data.json
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DocItem {
-    pub docs: DocsMeta,
-    pub aliases: Option<Vec<Vec<String>>>, // ValuePath is Vec<String>
-    pub path: Vec<String>,
+pub struct Document {
+    pub meta: DocumentFrontmatter,
+    pub content: Option<ContentSource>,
 }
 
-impl DocItem {
-    pub fn title(&self) -> String {
-        self.path.join(".")
+// Alias Document to DocItem to minimize changes in other files
+pub type DocItem = Document;
+
+impl Document {
+    pub fn title(&self) -> &str {
+        &self.meta.title
     }
 
     pub fn content(&self) -> Option<&String> {
-        // Prioritize lambda content, then attr content
-        if let Some(lambda) = &self.docs.lambda {
-             if let Some(content) = &lambda.content {
-                 if !content.is_empty() {
-                     return Some(content);
-                 }
-             }
-        }
-        if let Some(content) = &self.docs.attr.content {
-            if !content.is_empty() {
-                return Some(content);
-            }
-        }
-        None
+        self.content.as_ref().and_then(|c| c.content.as_ref())
     }
 }
